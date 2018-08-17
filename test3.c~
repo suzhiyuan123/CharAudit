@@ -3,12 +3,14 @@
 #include <termios.h>
 #include<string.h>
 
-#define err_sys printf
+#include "apue.h"
+
+//#define err_sys printf
 
 pid_t
-pty_fork(int *ptrfdm,char *slave_name,int slave_namez
-		/*const struct termios *slave_termios,*/
-		/*const struct winsize *slave_winsize*/
+pty_fork(int *ptrfdm,char *slave_name,int slave_namez,
+		const struct termios *slave_termios,
+		const struct winsize *slave_winsize
 	)
 {
 	int fdm,fds;
@@ -106,7 +108,7 @@ int test3(){
 	int ptym;
 	char ptys[64];
 	
-	pty_fork(&ptym,ptys,64);
+	pty_fork(&ptym,ptys,64,NULL,NULL);
 	printf("ptys:%s\n",ptys);
 	sleep(1);
 	char tmp[128];
@@ -121,7 +123,14 @@ int test3(){
 }
 
 #include <termios.h>
+#include <signal.h>
 
+#ifdef LINUX
+#define OPTSTR "+d:einv"
+#else
+#define OPTSTR "d:einv"
+#endif
+static volatile sig_atomic_t sigcaught;
 static void set_noecho(int fd){
 	struct termios stermios;
 	if(tcgetattr(fd,&stermios) < 0)
@@ -129,8 +138,57 @@ static void set_noecho(int fd){
 	stermios.c_iflag &= ~(ECHO|ECHOE|ECHOK|ECHONL);
 	stermios.c_oflag &= ~(ONLCR);
 
-	if(tcsetattr(fd,TCSCAN,&stermios) < 0)
+	if(tcsetattr(fd,TCSANOW,&stermios) < 0)
 		err_sys("tcsetattr error");
+
+}
+
+#define BUFFSIZE 512
+
+static void sig_term(int signo){
+	sigcaught = 1;
+}
+
+
+void loop(int ptym,int ignoreeof){
+	pid_t child;
+	int nread;
+	char buf[BUFFSIZE];
+
+	if((child = fork()) < 0){
+		err_sys("fork error");
+	}else if(child == 0){
+		for(;;){
+			if((nread = read(STDIN_FILENO,buf,BUFFSIZE)) < 0){
+				err_sys("read error from stdin");
+			}else if(nread == 0)
+				break;
+
+			if(writen(ptym,buf,nread) != nread){
+				err_sys("write error");
+			}
+		}
+		if(ignoreeof == 0)
+			kill(getppid(),SIGTERM);
+		exit(0);
+	}
+	
+	if(signal_intr(SIGTERM,sig_term) == SIG_ERR)
+		err_sys("signal_intr error");
+
+	for(;;){
+		if((nread = read(ptym,buf,BUFFSIZE)) <= 0){
+			break;
+		}
+		if(writen(STDOUT_FILENO,buf,nread) != nread){
+			err_sys("writen error");
+		}
+	
+	}
+
+	if(sigcaught == 0){
+		kill(child,SIGTERM);
+	}
 
 }
 
@@ -198,7 +256,7 @@ int test4(int argc,char *argv[]){
 	}
 	if(verbose){
 		fprintf(stderr,"slave_name = %s\n",slave_name);
-		if(drive != NULL){
+		if(driver != NULL){
 			fprintf(stderr,"drive = %s\n",driver);
 		}
 	}
@@ -208,8 +266,8 @@ int test4(int argc,char *argv[]){
 		if(atexit(tty_atexit) < 0)
 			err_sys("atexit error");
 	}
-	if(drive)
-		do_driver(driver);
+	//if(driver)
+	//	do_driver(driver);
 	loop(fdm,ignoreeof);
 	exit(0);
 }

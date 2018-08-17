@@ -14,6 +14,8 @@ int main(int argc,char *argv[]){
 	//test();
 	//test3();
 
+	test4(argc,argv);
+/*
 	int fd;
     int new_fd;
 
@@ -26,7 +28,7 @@ int main(int argc,char *argv[]){
 		close(fd);
 	}
     printf("hello world!!\n");
-
+*/
 	printf("End\n");
 	return 0;
 }
